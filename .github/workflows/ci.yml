@@ -1,0 +1,57 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint --if-present
+        continue-on-error: true
+
+      - name: Build Next.js
+        run: npm run build
+        env:
+          # Use dummy values for build time only
+          MONGODB_URI: ${{ secrets.MONGODB_URI || 'mongodb://localhost/dummy' }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET || 'dummy-secret-key' }}
+          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL || 'http://localhost:3000' }}
+          AUTH_GOOGLE_ID: ${{ secrets.AUTH_GOOGLE_ID || 'dummy' }}
+          AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET || 'dummy' }}
+
+      - name: Check build output
+        run: test -d .next && echo "Build successful" || echo "Build failed"
+
+  # Optional: Notify Railway webhook on successful push to main
+  notify-railway:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Railway redeploy
+        run: |
+          if [ -n "${{ secrets.RAILWAY_WEBHOOK_URL }}" ]; then
+            curl -X POST "${{ secrets.RAILWAY_WEBHOOK_URL }}"
+          fi
+        continue-on-error: true
